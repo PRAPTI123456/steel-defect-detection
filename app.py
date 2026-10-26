@@ -9,7 +9,7 @@ import streamlit as st
 
 import db
 import severity
-from inspector import inspect_image, load_model
+from inspector import inspect_image, load_model, to_grayscale_bgr
 
 st.set_page_config(page_title="Defect Inspection", page_icon="🏭", layout="wide")
 db.init_db()
@@ -18,43 +18,41 @@ st.title("🏭 Industrial Defect Detection & Quality Inspection")
 
 with st.sidebar:
     st.header("Settings")
-    weights = st.text_input("Model weights path (optional)", "runs/neu_det/weights/best.pt")
-    conf = st.slider("YOLO confidence threshold", 0.05, 0.95, 0.25, 0.05)
+    weights = st.text_input("Model weights path", "runs/neu_det/weights/best.pt")
+    conf = st.slider("YOLO confidence threshold", 0.01, 0.95, 0.10, 0.01)
     st.caption("Lower threshold = more detections (more false alarms).")
-    use_classic = st.checkbox("Also use classical scratch detector", value=True,
-                              help="Works on any steel photo without training. Shown in red.")
-    classic_z = st.slider("Classical sensitivity", 5.0, 15.0, 9.0, 0.5,
-                          help="Lower = more sensitive (finds fainter scratches, more false alarms).")
+    imgsz = st.selectbox("Image size (match training)", [200, 320, 416, 640], index=3)
+    gray = st.checkbox("Convert to grayscale before testing", value=True)
     strict = st.checkbox("Strict mode: any defect = REJECT", value=True)
     severity.STRICT_MODE = strict
-    st.caption("Green boxes = YOLO model, red boxes = classical detector.")
 
 tab_inspect, tab_dash = st.tabs(["🔍 Inspect", "📊 Dashboard"])
 
 VERDICT_ICON = {"PASS": "✅", "REVIEW": "⚠️", "REJECT": "❌"}
 
 with tab_inspect:
-    files = st.file_uploader("Upload product images", type=["jpg", "jpeg", "png", "bmp"], accept_multiple_files=True)
+    files = st.file_uploader("Upload product images", type=["jpg", "jpeg", "png", "bmp"],
+                             accept_multiple_files=True)
     if files:
         model = load_model(weights)
         if model is None:
-            st.warning(f"No YOLO weights found at '{weights}'. Using the classical detector only. "
-                       "Train the model (train.py) and put best.pt there for full detection.")
-            if not use_classic:
-                st.error("Enable the classical detector or provide model weights.")
-                st.stop()
+            st.error(f"No YOLO weights found at '{weights}'. Check the path in the sidebar.")
+            st.stop()
 
         for f in files:
             img = cv2.imdecode(np.frombuffer(f.read(), np.uint8), cv2.IMREAD_COLOR)
-            annotated, defects, verdict = inspect_image(model, img, conf, use_classic=use_classic, classic_z=classic_z)
+            annotated, defects, verdict = inspect_image(model, img, conf, imgsz=imgsz, grayscale=gray)
             db.save_inspection(f.name, verdict, defects)
 
             c1, c2 = st.columns(2)
             c1.image(img[:, :, ::-1], caption=f"Original: {f.name}")
-            c2.image(annotated[:, :, ::-1], caption="Detected defects")
+            c2.image(annotated[:, :, ::-1], caption="Detected defects (model input was grayscale)"
+                     if gray else "Detected defects")
             st.subheader(f"{VERDICT_ICON[verdict]} Verdict: {verdict}")
             if defects:
                 st.dataframe(pd.DataFrame(defects)[["class_name", "source", "confidence", "area_pct", "severity"]])
+            else:
+                st.info("No defects detected at this confidence.")
             st.divider()
 
 with tab_dash:
