@@ -1,0 +1,14 @@
+venv/
+dataset/
+NEU-DET/
+outputs/
+test_photos/
+__pycache__/
+*.db
+*.zip
+runs/*
+!runs/neu_det/
+runs/neu_det/*
+!runs/neu_det/weights/
+runs/neu_det/weights/*
+!runs/neu_det/weights/best.pt
